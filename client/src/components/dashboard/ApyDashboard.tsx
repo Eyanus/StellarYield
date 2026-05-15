@@ -220,34 +220,22 @@ export default function ApyDashboard() {
       setError(null);
       const res = await fetch(apiUrl('/api/yields'));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      // Map backend data and augment with comparison fields
-      const augmented: ApyEntry[] = data.map((d: {
-        protocol: string;
-        asset: string;
-        apy: number;
-        totalApy?: number;
-        netApy?: number;
-        feeDragApy?: number;
-        netYieldSensitivity?: Array<{ environment: "low" | "medium" | "high"; netApy: number }>;
-        capitalEfficiency?: { score: number; grade: "A" | "B" | "C" | "D" };
-        tvl: number;
-        risk: string;
-      }) => {
-        const fetchedTime = d.fetchedAt ? new Date(d.fetchedAt).getTime() : Date.now();
+      const data: unknown = await res.json();
+      const rows = Array.isArray(data) ? data : [];
+      const augmented: ApyEntry[] = rows.map((row) => {
+        const entry = normalizeApyEntry(row as ApiApyEntry);
+        const fetchedTime = entry.fetchedAt ? new Date(entry.fetchedAt).getTime() : Date.now();
         const freshness = computeDecayedFreshnessConfidence(Date.now() - fetchedTime);
         return {
-          ...d,
-        change24h: parseFloat((Math.random() * 4 - 1).toFixed(2)),
-        rewardTokens: [d.protocol.slice(0, 4).toUpperCase()],
-        category: d.protocol === 'Soroswap' ? 'DEX LP' : d.protocol === 'Blend' ? 'Lending' : 'Index',
-        freshnessConfidence: freshness.confidence,
-        unusableDueToStale: freshness.unusable,
-      }});
+          ...entry,
+          freshnessConfidence: freshness.confidence,
+          unusableDueToStale: freshness.unusable,
+        };
+      });
       setApyData(augmented);
-    } catch {
-      // Fallback to mock data if API is unavailable
-      setApyData(MOCK_APY_DATA);
+    } catch (err) {
+      setError(getErrorMessage(err));
+      setApyData([]);
     } finally {
       setLoading(false);
       setRefreshing(false);

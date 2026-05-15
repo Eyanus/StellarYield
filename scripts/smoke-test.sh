@@ -6,7 +6,7 @@ BACKEND_URL=${BACKEND_URL:-"http://localhost:3001"}
 
 BACKEND_HEALTH_PATH=${BACKEND_HEALTH_PATH:-"/api/health"}
 BACKEND_YIELDS_PATH=${BACKEND_YIELDS_PATH:-"/api/yields"}
-FRONTEND_ASSET_PATH=${FRONTEND_ASSET_PATH:-"/favicon.ico"}
+FRONTEND_ASSET_PATH=${FRONTEND_ASSET_PATH:-"/favicon.svg"}
 
 curl_status() {
   local url="$1"
@@ -19,15 +19,15 @@ expect_200() {
   local status
   status="$(curl_status "$url")"
   if [[ "$status" == "200" ]]; then
-    echo "✅ [SUCCESS] $label (200)"
+    echo "[PASS] $label (200)"
   else
     if [[ "$status" == "000" ]]; then
-      echo "❌ [FAILED]  $label (unreachable)"
+      echo "[FAIL] $label (unreachable)"
       echo "   URL: $url"
       echo "   Hint: set FRONTEND_URL/BACKEND_URL to deployed URLs or start local services."
       exit 1
     fi
-    echo "❌ [FAILED]  $label ($status)"
+    echo "[FAIL] $label ($status)"
     echo "   URL: $url"
     exit 1
   fi
@@ -41,19 +41,19 @@ echo "Target Backend:  $BACKEND_URL"
 echo "----------------------------------------"
 
 echo ""
-echo "[1/4] Checking Backend health..."
+echo "[1/4] Checking backend health..."
 expect_200 "Backend ${BACKEND_HEALTH_PATH}" "${BACKEND_URL}${BACKEND_HEALTH_PATH}"
 
 echo ""
-echo "[2/4] Checking Backend yield endpoint..."
+echo "[2/4] Checking backend yield endpoint..."
 expect_200 "Backend ${BACKEND_YIELDS_PATH}" "${BACKEND_URL}${BACKEND_YIELDS_PATH}"
 
 echo ""
-echo "[3/4] Checking Frontend root..."
+echo "[3/4] Checking frontend root..."
 expect_200 "Frontend /" "${FRONTEND_URL}/"
 
 echo ""
-echo "[4/4] Checking Frontend static asset..."
+echo "[4/4] Checking frontend static asset..."
 expect_200 "Frontend ${FRONTEND_ASSET_PATH}" "${FRONTEND_URL}${FRONTEND_ASSET_PATH}"
 
 echo ""

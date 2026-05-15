@@ -10,10 +10,8 @@ interface MockCallBuilder {
 interface MockHorizonServer {
   ledgers: jest.Mock;
 }
-// eslint-disable-next-line no-var
-var mockCallBuilder: MockCallBuilder;
-// eslint-disable-next-line no-var
-var mockHorizonServer: MockHorizonServer;
+let mockCallBuilder: MockCallBuilder;
+let mockHorizonServer: MockHorizonServer;
 
 function createMockCallBuilder() {
   mockCallBuilder = {

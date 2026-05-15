@@ -164,6 +164,6 @@ Optional path overrides:
 
 - `BACKEND_HEALTH_PATH` (default: `/api/health`)
 - `BACKEND_YIELDS_PATH` (default: `/api/yields`)
-- `FRONTEND_ASSET_PATH` (default: `/favicon.ico`)
+- `FRONTEND_ASSET_PATH` (default: `/favicon.svg`)
 
 StellarYield is participating in the Stellar Wave Program via Drips. Contributors can pick up open issues, submit focused pull requests, and validate their work locally with the commands above before opening a PR.
