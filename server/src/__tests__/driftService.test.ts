@@ -43,6 +43,17 @@ describe("DriftService", () => {
     jest.clearAllMocks();
   });
 
+  afterEach(async () => {
+    jest.clearAllMocks();
+    // Ensure timers are cleared
+    jest.clearAllTimers();
+  });
+
+  afterAll(async () => {
+    // Add any async cleanup
+    await new Promise(resolve => setTimeout(() => resolve(undefined), 100));
+  });
+
   it("should do nothing if total USD is zero", async () => {
     await DriftService.evaluateDriftEvents({ VaultA: 0, VaultB: 0 });
     expect(mockDriftEventFindFirst).not.toHaveBeenCalled();
@@ -100,7 +111,10 @@ describe("DriftService", () => {
     expect(mockDriftEventUpdate).toHaveBeenCalledTimes(1);
     expect(mockDriftEventUpdate).toHaveBeenCalledWith({
       where: { id: "drift-1" },
-      data: { isRecovered: true, resolvedAt: expect.any(Date) },
+      data: { 
+        isRecovered: true, 
+        resolvedAt: expect.any(Date)
+      },
     });
 
     expect(dispatchDriftAlert).toHaveBeenCalledTimes(1);

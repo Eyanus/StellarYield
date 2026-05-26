@@ -31,6 +31,17 @@ describe('RebalanceQueueService', () => {
     mockPrisma = require('@prisma/client').PrismaClient();
   });
 
+  afterEach(async () => {
+    jest.clearAllMocks();
+    // Ensure timers are cleared
+    jest.clearAllTimers();
+  });
+
+  afterAll(async () => {
+    // Add any async cleanup
+    await new Promise(resolve => setTimeout(() => resolve(undefined), 100));
+  });
+
   describe('enqueueRebalance', () => {
     it('should enqueue a new rebalance request', async () => {
       const vaultId = 'vault-123';
@@ -412,13 +423,14 @@ describe('RebalanceQueueService', () => {
       mockPrisma.rebalanceQueueEntry.update.mockResolvedValue({
         id: 'queue-1',
         status: REBALANCE_STATUS.COMPLETED,
-        completedAt: expect.any(Date),
+        completedAt: new Date(), // Ensure Date object, not undefined
       });
 
       const result = await service.markAsCompleted('queue-1', '0xabc123');
 
       expect(result.status).toBe(REBALANCE_STATUS.COMPLETED);
       expect(result.completedAt).toBeDefined();
+      expect(result.completedAt).toBeInstanceOf(Date); // Add validation
       expect(mockPrisma.rebalanceHistory.create).toHaveBeenCalled();
     });
 
@@ -427,7 +439,7 @@ describe('RebalanceQueueService', () => {
         id: 'queue-1',
         status: REBALANCE_STATUS.CANCELLED,
         lastError: 'User requested cancellation',
-        completedAt: expect.any(Date),
+        completedAt: new Date(),
       });
 
       const result = await service.cancelEntry('queue-1', 'User requested cancellation');
