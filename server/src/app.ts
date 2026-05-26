@@ -17,6 +17,7 @@ import notificationsRouter from "./routes/notifications";
 import healthRouter from "./routes/health";
 import onrampRouter from "./routes/onramp";
 import zapRouter from "./routes/zap";
+import depositsRouter from "./routes/deposits";
 import pnlRouter from "./routes/pnl";
 import exportRouter from "./routes/export";
 import feesRouter from "./routes/fees";
@@ -105,6 +106,7 @@ export function createApp() {
   app.use("/api/referrals", referralsRouter);
   app.use("/api/onramp", onrampRouter);
   app.use("/api/zap", zapRouter);
+  app.use("/api/deposits", depositsRouter);
   app.use("/api/users", pnlRouter);
   app.use("/api/users", exportRouter);
   app.use("/api/admin", adminRouter);
