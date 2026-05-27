@@ -8,6 +8,9 @@ import {
   CompoundJobData,
 } from './types';
 
+export { getQueueHealth } from './health';
+export type { QueueHealthSummary, QueueHealthEntry, QueueJobCounts } from './health';
+
 const defaultJobOptions = {
   attempts: config.keeper.jobMaxAttempts,
   backoff: { type: 'exponential', delay: 5_000 } as const,

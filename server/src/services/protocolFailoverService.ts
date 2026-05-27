@@ -334,3 +334,103 @@ export class FailoverRegistry {
 
 /** Process-wide failover registry shared across routes/jobs. */
 export const failoverRegistry = new FailoverRegistry();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Failover Simulation — safe, read-only, never touches failoverRegistry
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A synthetic health fixture for simulation. `lastUpdatedAt` defaults to the
+ * current time (fresh data) when omitted, so callers only need to supply it
+ * when they want to simulate stale-data scenarios.
+ */
+export interface ProtocolSimulationFixture {
+  id: string;
+  name: string;
+  status: ProtocolHealthStatus;
+  /** ISO-8601. Defaults to `now` when omitted (simulates fresh data). */
+  lastUpdatedAt?: string;
+  providerUptime?: number;
+  recentErrorCount?: number;
+}
+
+export interface FailoverSimulationInput {
+  fixtures: ProtocolSimulationFixture[];
+  /** Override individual thresholds for the simulation run. */
+  thresholds?: Partial<FailoverThresholds>;
+}
+
+/** A strategy stub derived from a simulation fixture. */
+export interface SimulatedStrategy {
+  id: string;
+  name: string;
+}
+
+export interface FailoverSimulationResult {
+  /** Explicitly marks the response as non-production data. */
+  simulationOnly: true;
+  timestamp: string;
+  included: SimulatedStrategy[];
+  excluded: SimulatedStrategy[];
+  evaluations: ProtocolEvaluation[];
+  decisions: FailoverDecision[];
+}
+
+/**
+ * Run a failover pass against synthetic health fixtures.
+ *
+ * This function is entirely pure — it constructs its own local health map and
+ * strategy list from the provided fixtures and calls `applyFailover` directly.
+ * It never reads from or writes to `failoverRegistry` or any other mutable
+ * module-level state, so it cannot interfere with production behaviour.
+ */
+export function simulateFailover(
+  input: FailoverSimulationInput,
+  now: number = Date.now(),
+): FailoverSimulationResult {
+  const thresholds: FailoverThresholds = {
+    ...DEFAULT_FAILOVER_THRESHOLDS,
+    ...input.thresholds,
+    // Arrays must be fully replaced, not spread-merged, to avoid accidental merges.
+    excludeStatuses:
+      input.thresholds?.excludeStatuses ?? DEFAULT_FAILOVER_THRESHOLDS.excludeStatuses,
+    warnStatuses:
+      input.thresholds?.warnStatuses ?? DEFAULT_FAILOVER_THRESHOLDS.warnStatuses,
+  };
+
+  const strategies: SimulatedStrategy[] = input.fixtures.map((f) => ({
+    id: f.id,
+    name: f.name,
+  }));
+
+  const health = new Map<string, ProtocolHealthInput>(
+    input.fixtures.map((f) => [
+      f.id,
+      {
+        id: f.id,
+        name: f.name,
+        status: f.status,
+        lastUpdatedAt: f.lastUpdatedAt ?? new Date(now).toISOString(),
+        providerUptime: f.providerUptime,
+        recentErrorCount: f.recentErrorCount,
+      },
+    ]),
+  );
+
+  const result = applyFailover(
+    strategies,
+    health,
+    new Set<string>(), // fresh previousState — simulation always starts clean
+    thresholds,
+    now,
+  );
+
+  return {
+    simulationOnly: true,
+    timestamp: new Date(now).toISOString(),
+    included: result.included,
+    excluded: result.excluded,
+    evaluations: result.evaluations,
+    decisions: result.decisions,
+  };
+}

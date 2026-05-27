@@ -1,5 +1,8 @@
 import { STRATEGY_EVENT_TYPE, VERSION_CHANGE_TYPE } from '../queues/types';
 import { StrategySnapshotVersioningService } from '../services/strategySnapshotVersioningService';
+import request from 'supertest';
+import express from 'express';
+import strategiesRouter from '../routes/strategies';
 
 // Mock Prisma — singleton pattern so the module-level `prisma` and test's
 // mockPrisma reference the same object.
@@ -476,5 +479,225 @@ describe('StrategySnapshotVersioningService', () => {
       expect(oldVersion).toBeDefined();
       expect(oldVersion?.id).toBe('snap-1');
     });
+  });
+
+  describe('Rollback Preview', () => {
+    const baseSnapshot = {
+      id: 'snap-3',
+      strategyId: 'strategy-1',
+      version: 3,
+      name: 'Current Strategy',
+      description: 'Current description',
+      keyWeights: { BTC: 0.5, ETH: 0.3, USDC: 0.2 },
+      riskParameters: { volatility: 0.2 },
+      constraints: { maxAllocation: 0.5 },
+      status: 'ACTIVE',
+      createdAt: new Date(),
+      supersededAt: null,
+      supersededByVersion: null,
+      changeReason: null,
+      changeAuthor: null,
+    };
+
+    const targetSnapshot = {
+      id: 'snap-1',
+      strategyId: 'strategy-1',
+      version: 1,
+      name: 'Original Strategy',
+      description: 'Original description',
+      keyWeights: { BTC: 0.4, ETH: 0.3, USDC: 0.3 },
+      riskParameters: { volatility: 0.25 },
+      constraints: { maxAllocation: 0.5 },
+      status: 'SUPERSEDED',
+      createdAt: new Date(),
+      supersededAt: new Date(),
+      supersededByVersion: 2,
+      changeReason: null,
+      changeAuthor: null,
+    };
+
+    it('returns changed fields between current and target snapshot', async () => {
+      mockPrisma.strategySnapshot.findFirst
+        .mockResolvedValueOnce(baseSnapshot)   // current ACTIVE
+        .mockResolvedValueOnce(targetSnapshot); // target version
+
+      const preview = await service.previewRollback('strategy-1', 1);
+
+      expect(preview.currentVersion).toBe(3);
+      expect(preview.targetVersion).toBe(1);
+      const fieldNames = preview.changedFields.map((d) => d.field);
+      expect(fieldNames).toContain('keyWeights');
+      expect(fieldNames).toContain('riskParameters');
+      expect(fieldNames).toContain('name');
+      expect(fieldNames).toContain('description');
+    });
+
+    it('does not include unchanged fields in changedFields', async () => {
+      mockPrisma.strategySnapshot.findFirst
+        .mockResolvedValueOnce(baseSnapshot)
+        .mockResolvedValueOnce(targetSnapshot);
+
+      const preview = await service.previewRollback('strategy-1', 1);
+
+      const fieldNames = preview.changedFields.map((d) => d.field);
+      // constraints are identical between the two snapshots
+      expect(fieldNames).not.toContain('constraints');
+    });
+
+    it('includes the full target snapshot DTO in the response', async () => {
+      mockPrisma.strategySnapshot.findFirst
+        .mockResolvedValueOnce(baseSnapshot)
+        .mockResolvedValueOnce(targetSnapshot);
+
+      const preview = await service.previewRollback('strategy-1', 1);
+
+      expect(preview.targetSnapshot.version).toBe(1);
+      expect(preview.targetSnapshot.name).toBe('Original Strategy');
+      expect(preview.targetSnapshot.keyWeights).toEqual({ BTC: 0.4, ETH: 0.3, USDC: 0.3 });
+    });
+
+    it('marks preview as safe when target is SUPERSEDED (not ARCHIVED)', async () => {
+      mockPrisma.strategySnapshot.findFirst
+        .mockResolvedValueOnce(baseSnapshot)
+        .mockResolvedValueOnce({ ...targetSnapshot, status: 'SUPERSEDED' });
+
+      const preview = await service.previewRollback('strategy-1', 1);
+
+      expect(preview.safe).toBe(true);
+    });
+
+    it('marks preview as unsafe (safe: false) when target is ARCHIVED', async () => {
+      mockPrisma.strategySnapshot.findFirst
+        .mockResolvedValueOnce(baseSnapshot)
+        .mockResolvedValueOnce({ ...targetSnapshot, status: 'ARCHIVED' });
+
+      const preview = await service.previewRollback('strategy-1', 1);
+
+      expect(preview.safe).toBe(false);
+    });
+
+    it('passes rollbackReason through to the preview', async () => {
+      mockPrisma.strategySnapshot.findFirst
+        .mockResolvedValueOnce(baseSnapshot)
+        .mockResolvedValueOnce(targetSnapshot);
+
+      const preview = await service.previewRollback('strategy-1', 1, 'Emergency revert');
+
+      expect(preview.rollbackReason).toBe('Emergency revert');
+    });
+
+    it('throws when no active snapshot exists', async () => {
+      mockPrisma.strategySnapshot.findFirst
+        .mockResolvedValueOnce(null)  // no active
+        .mockResolvedValueOnce(targetSnapshot);
+
+      await expect(service.previewRollback('strategy-1', 1)).rejects.toThrow(
+        /No active snapshot/,
+      );
+    });
+
+    it('throws when target version does not exist', async () => {
+      mockPrisma.strategySnapshot.findFirst
+        .mockResolvedValueOnce(baseSnapshot)
+        .mockResolvedValueOnce(null); // target missing
+
+      await expect(service.previewRollback('strategy-1', 99)).rejects.toThrow(
+        /not found/,
+      );
+    });
+
+    it('returns empty changedFields when both snapshots are identical', async () => {
+      mockPrisma.strategySnapshot.findFirst
+        .mockResolvedValueOnce(baseSnapshot)
+        .mockResolvedValueOnce({ ...baseSnapshot, version: 2, status: 'SUPERSEDED' });
+
+      const preview = await service.previewRollback('strategy-1', 2);
+
+      expect(preview.changedFields).toHaveLength(0);
+    });
+  });
+});
+
+// ── Route-level tests for GET /api/strategies/:id/snapshots/:v/rollback-preview ──
+
+jest.mock('../services/strategySnapshotVersioningService', () => ({
+  strategySnapshotVersioningService: {
+    previewRollback: jest.fn(),
+  },
+}));
+
+describe('GET /api/strategies/:strategyId/snapshots/:targetVersion/rollback-preview', () => {
+  const app = express();
+  app.use('/api/strategies', strategiesRouter);
+
+  const { strategySnapshotVersioningService: mockSvc } = require('../services/strategySnapshotVersioningService');
+
+  beforeEach(() => jest.clearAllMocks());
+
+  const basePreview = {
+    strategyId: 'strategy-1',
+    currentVersion: 3,
+    targetVersion: 1,
+    changedFields: [{ field: 'keyWeights', current: { BTC: 0.5 }, target: { BTC: 0.4 } }],
+    targetSnapshot: { version: 1, name: 'Original Strategy' },
+    safe: true,
+  };
+
+  it('returns 200 with rollback preview', async () => {
+    mockSvc.previewRollback.mockResolvedValue(basePreview);
+
+    const res = await request(app)
+      .get('/api/strategies/strategy-1/snapshots/1/rollback-preview');
+
+    expect(res.status).toBe(200);
+    expect(res.body.currentVersion).toBe(3);
+    expect(res.body.targetVersion).toBe(1);
+    expect(Array.isArray(res.body.changedFields)).toBe(true);
+  });
+
+  it('passes optional reason query param to the service', async () => {
+    mockSvc.previewRollback.mockResolvedValue(basePreview);
+
+    await request(app)
+      .get('/api/strategies/strategy-1/snapshots/1/rollback-preview?reason=Emergency+revert');
+
+    expect(mockSvc.previewRollback).toHaveBeenCalledWith('strategy-1', 1, 'Emergency revert');
+  });
+
+  it('returns 400 for non-integer targetVersion', async () => {
+    const res = await request(app)
+      .get('/api/strategies/strategy-1/snapshots/abc/rollback-preview');
+
+    expect(res.status).toBe(400);
+    expect(mockSvc.previewRollback).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when active snapshot is missing', async () => {
+    mockSvc.previewRollback.mockRejectedValue(new Error('No active snapshot found for strategy "strategy-1".'));
+
+    const res = await request(app)
+      .get('/api/strategies/strategy-1/snapshots/1/rollback-preview');
+
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 404 when target version does not exist', async () => {
+    mockSvc.previewRollback.mockRejectedValue(new Error('Snapshot version 99 not found for strategy "strategy-1".'));
+
+    const res = await request(app)
+      .get('/api/strategies/strategy-1/snapshots/99/rollback-preview');
+
+    expect(res.status).toBe(404);
+  });
+
+  it('does not mutate state — previewRollback is called, not an actual rollback', async () => {
+    mockSvc.previewRollback.mockResolvedValue(basePreview);
+
+    await request(app)
+      .get('/api/strategies/strategy-1/snapshots/1/rollback-preview');
+
+    expect(mockSvc.previewRollback).toHaveBeenCalledTimes(1);
+    // Confirm no write method was invoked
+    expect(mockSvc.createSnapshot).toBeUndefined();
   });
 });

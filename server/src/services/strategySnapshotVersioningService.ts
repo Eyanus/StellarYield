@@ -39,6 +39,32 @@ export interface VersionReferenceDTO {
 }
 
 /**
+ * A single field diff between two snapshots.
+ */
+export interface SnapshotFieldDiff {
+  field: string;
+  current: unknown;
+  target: unknown;
+}
+
+/**
+ * Read-only preview of what a rollback would change.
+ * No state is mutated when this is produced.
+ */
+export interface RollbackPreviewDTO {
+  strategyId: string;
+  currentVersion: number;
+  targetVersion: number;
+  /** Fields whose values differ between current and target. */
+  changedFields: SnapshotFieldDiff[];
+  /** Full snapshot that would become active after rollback. */
+  targetSnapshot: StrategySnapshotDTO;
+  rollbackReason?: string;
+  /** False when the target is ARCHIVED — rollback would need explicit override. */
+  safe: boolean;
+}
+
+/**
  * Strategy version change record for audit trail.
  */
 export interface VersionChangeRecordDTO {
@@ -427,9 +453,74 @@ export class StrategySnapshotVersioningService {
     };
   }
 
+  /**
+   * Preview what a rollback to `targetVersion` would change.
+   *
+   * Compares the current active snapshot against the target snapshot and
+   * returns a diff of all fields that would be affected. This method is
+   * purely read-only — it never writes to the database.
+   */
+  async previewRollback(
+    strategyId: string,
+    targetVersion: number,
+    rollbackReason?: string,
+  ): Promise<RollbackPreviewDTO> {
+    const [currentSnapshot, targetSnapshot] = await Promise.all([
+      prisma.strategySnapshot.findFirst({
+        where: { strategyId, status: 'ACTIVE' },
+      }),
+      prisma.strategySnapshot.findFirst({
+        where: { strategyId, version: targetVersion },
+      }),
+    ]);
+
+    if (!currentSnapshot) {
+      throw new Error(`No active snapshot found for strategy "${strategyId}".`);
+    }
+    if (!targetSnapshot) {
+      throw new Error(
+        `Snapshot version ${targetVersion} not found for strategy "${strategyId}".`,
+      );
+    }
+
+    const changedFields = this.diffSnapshots(currentSnapshot, targetSnapshot);
+
+    return {
+      strategyId,
+      currentVersion: currentSnapshot.version,
+      targetVersion: targetSnapshot.version,
+      changedFields,
+      targetSnapshot: this.mapToDTO(targetSnapshot),
+      rollbackReason,
+      safe: targetSnapshot.status !== 'ARCHIVED',
+    };
+  }
+
   // ─────────────────────────────────────────────────────────────
   // Private helpers
   // ─────────────────────────────────────────────────────────────
+
+  private diffSnapshots(current: any, target: any): SnapshotFieldDiff[] {
+    const diffs: SnapshotFieldDiff[] = [];
+
+    const scalarFields: Array<keyof typeof current> = ['name', 'description'];
+    for (const field of scalarFields) {
+      if (current[field] !== target[field]) {
+        diffs.push({ field, current: current[field], target: target[field] });
+      }
+    }
+
+    const objectFields = ['keyWeights', 'riskParameters', 'constraints'] as const;
+    for (const field of objectFields) {
+      const currentStr = JSON.stringify(current[field] ?? {});
+      const targetStr = JSON.stringify(target[field] ?? {});
+      if (currentStr !== targetStr) {
+        diffs.push({ field, current: current[field], target: target[field] });
+      }
+    }
+
+    return diffs;
+  }
 
   private async recordVersionChange(
     strategyId: string,

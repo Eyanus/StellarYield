@@ -13,6 +13,7 @@ import {
 } from "../services/protocolFailoverService";
 import { rotationRegistry } from "../services/strategyRotationService";
 import { exportService } from "../services/exportService";
+import { strategySnapshotVersioningService } from "../services/strategySnapshotVersioningService";
 
 const router = Router();
 
@@ -165,5 +166,47 @@ router.get("/export", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to generate export bundle" });
   }
 });
+
+/**
+ * GET /api/strategies/:strategyId/snapshots/:targetVersion/rollback-preview
+ *
+ * Returns a read-only diff between the current active snapshot and the
+ * requested target version. No rollback is executed.
+ *
+ * Response includes:
+ *   - changedFields: array of { field, current, target } for every field that differs
+ *   - targetSnapshot: full snapshot DTO that would become active
+ *   - safe: false when the target version is ARCHIVED (requires explicit override)
+ */
+router.get(
+  "/:strategyId/snapshots/:targetVersion/rollback-preview",
+  async (req: Request, res: Response) => {
+    const { strategyId, targetVersion } = req.params;
+    const version = Number(targetVersion);
+
+    if (!Number.isInteger(version) || version < 1) {
+      res.status(400).json({ error: "targetVersion must be a positive integer." });
+      return;
+    }
+
+    const rollbackReason = req.query.reason as string | undefined;
+
+    try {
+      const preview = await strategySnapshotVersioningService.previewRollback(
+        strategyId,
+        version,
+        rollbackReason,
+      );
+      res.json(preview);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to generate rollback preview.";
+      if (message.includes("not found") || message.includes("No active snapshot")) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  },
+);
 
 export default router;
