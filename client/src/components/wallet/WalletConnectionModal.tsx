@@ -1,5 +1,5 @@
 import { ExternalLink, Github, Mail, Shield, Wallet, X, Zap } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useWallet } from "../../context/useWallet";
 
 interface WalletConnectionModalProps {
@@ -12,6 +12,7 @@ export default function WalletConnectionModal({
   onClose,
 }: WalletConnectionModalProps) {
   const [identifier, setIdentifier] = useState("");
+  const titleId = useId();
   const {
     connectWallet,
     isConnecting,
@@ -20,6 +21,16 @@ export default function WalletConnectionModal({
     verificationStatus,
     clearError,
   } = useWallet();
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   if (!isOpen) {
     return null;
@@ -43,26 +54,31 @@ export default function WalletConnectionModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+    >
       <div className="glass-panel relative w-full max-w-md p-6 shadow-2xl">
         <button
           type="button"
           onClick={handleClose}
           className="absolute right-4 top-4 text-gray-400 transition-colors hover:text-white"
-          aria-label="Close wallet dialog"
+          aria-label="Close wallet connection dialog"
         >
-          <X size={18} />
+          <X size={18} aria-hidden="true" />
         </button>
 
         <div className="mb-6 flex items-center gap-3">
-          <div className="rounded-2xl bg-[#6C5DD3]/20 p-3 text-[#8f81f5]">
+          <div className="rounded-2xl bg-[#6C5DD3]/20 p-3 text-[#8f81f5]" aria-hidden="true">
             <Wallet size={24} />
           </div>
           <div>
             <p className="text-sm uppercase tracking-[0.2em] text-gray-400">
               Stellar Wallet
             </p>
-            <h2 className="text-2xl font-bold text-white">Connect Wallet</h2>
+            <h2 id={titleId} className="text-2xl font-bold text-white">Connect Wallet</h2>
           </div>
         </div>
 
@@ -100,9 +116,10 @@ export default function WalletConnectionModal({
                   type="button"
                   onClick={() => void handleConnect("freighter")}
                   disabled={isConnecting}
+                  aria-label="Connect with Freighter wallet"
                   className="btn-primary flex items-center justify-center gap-2 py-3 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  <Wallet size={16} />
+                  <Wallet size={16} aria-hidden="true" />
                   Freighter
                 </button>
               )}
@@ -110,20 +127,20 @@ export default function WalletConnectionModal({
                 type="button"
                 onClick={() => void handleConnect("xbull")}
                 disabled={isConnecting}
+                aria-label="Connect with xBull wallet"
                 className="btn-secondary flex items-center justify-center gap-2 py-3 disabled:cursor-not-allowed disabled:opacity-70"
-                title="xBull Wallet (opens xBull in-page connector)"
               >
-                <Zap size={16} />
+                <Zap size={16} aria-hidden="true" />
                 xBull
               </button>
               <button
                 type="button"
                 onClick={() => void handleConnect("albedo")}
                 disabled={isConnecting}
+                aria-label="Connect with Albedo wallet"
                 className="btn-secondary flex items-center justify-center gap-2 py-3 disabled:cursor-not-allowed disabled:opacity-70"
-                title="Albedo (opens Albedo popup)"
               >
-                <Shield size={16} />
+                <Shield size={16} aria-hidden="true" />
                 Albedo
               </button>
             </div>
