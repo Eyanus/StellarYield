@@ -139,6 +139,8 @@ For a full breakdown of how local, preview, and production environments differ â
 
 These match the committed [`vercel.json`](./vercel.json) at the repository root. Vercel resolves the install/build/output paths _inside_ the configured Root Directory, so leaving the root unset (or pointing it at the repo root) makes Vercel run `npm run build` from a folder that has no `build` script.
 
+Preview deployments must define `VITE_API_BASE_URL` or `VITE_API_URL` in Vercel. Without one of those values, the client intentionally avoids falling back to `http://localhost:3001` and API-backed views should report that the backend is unavailable.
+
 ### Troubleshooting
 
 - **Build fails with `client/client/...` paths.** The Vercel Root Directory is set to the repo root instead of `client`. Update the project settings, redeploy, and confirm the build logs now start with `Running install command: npm ci --no-audit` inside `client/`.

@@ -23,7 +23,7 @@ Fixes # (issue number)
 Add screenshots to help explain the changes.
 
 ## UI Snapshot Checklist
-<!-- If your PR changes the UI, check the applicable boxes. Otherwise, mention "No visual changes" below. -->
+<!-- If your PR changes the UI, check the applicable boxes. Otherwise, check "No visual changes." -->
 - [ ] Screenshots provided for Desktop (1024px+)
 - [ ] Screenshots provided for Mobile (375px)
 - [ ] No visual changes

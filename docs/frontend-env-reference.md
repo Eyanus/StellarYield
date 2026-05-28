@@ -1,17 +1,17 @@
 # Frontend Environment Variable Reference
 
-The StellarYield client is built with [Vite](https://vitejs.dev/), which only exposes variables prefixed with `VITE_` to the browser bundle. Every variable listed here is **public** by design — never put private keys, signing secrets, or backend credentials in a `VITE_` variable. They become part of the shipped JavaScript.
+The StellarYield client is built with [Vite](https://vitejs.dev/), which only exposes variables prefixed with `VITE_` to the browser bundle. Every variable listed here is **public** by design - never put private keys, signing secrets, or backend credentials in a `VITE_` variable. They become part of the shipped JavaScript.
 
 Place values in `client/.env.local` during development. Production values are configured in the Vercel dashboard for each environment (Production, Preview, Development) and must be re-set if the project is moved.
 
-## How to use this file
+## How to Use This File
 
 1. Copy [`client/.env.example`](../client/.env.example) to `client/.env.local`.
 2. Fill in the required variables for your network.
 3. Override optional values only when you need to point the client at a non-default backend, RPC, or contract set.
-4. Restart `npm run dev` after editing `.env.local` — Vite snapshots env vars at start-up.
+4. Restart `npm run dev` after editing `.env.local` - Vite snapshots env vars at start-up.
 
-## Required for local development
+## Required for Local Development
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -19,7 +19,7 @@ Place values in `client/.env.local` during development. Production values are co
 | `VITE_SOROBAN_RPC_URL` | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint the frontend submits transactions to. Change when targeting mainnet. |
 | `VITE_NETWORK_PASSPHRASE` | `Test SDF Network ; September 2015` | Stellar network passphrase. Must match the RPC URL (testnet vs mainnet). |
 
-## Soroban contract IDs
+## Soroban Contract IDs
 
 The client only needs to know about contracts it interacts with directly. Leave a variable blank to disable the feature in the UI; runtime checks will surface a "not configured" state instead of crashing.
 
@@ -37,14 +37,14 @@ The client only needs to know about contracts it interacts with directly. Leave 
 | `VITE_LIQUID_STAKING_CONTRACT_ID` | Liquid staking contract. |
 | `VITE_STABLESWAP_CONTRACT_ID` | Stableswap pool contract. |
 
-### Vault token presentation
+### Vault Token Presentation
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `VITE_VAULT_TOKEN_SYMBOL` | `USDC` | Symbol shown next to vault token amounts. |
 | `VITE_VAULT_TOKEN_DECIMALS` | `7` | Decimals for the vault token. Must match the on-chain SAC. |
 
-### Zap asset metadata
+### Zap Asset Metadata
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ The client only needs to know about contracts it interacts with directly. Leave 
 | `VITE_USDC_SAC_CONTRACT_ID` | _empty_ | SAC contract for USDC. |
 | `VITE_AQUA_SAC_CONTRACT_ID` | _empty_ | SAC contract for AQUA. |
 
-## Optional integrations
+## Optional Integrations
 
 These variables are safe to leave blank in development. Features that depend on them gracefully disable themselves.
 
@@ -74,7 +74,7 @@ VITE_API_BASE_URL=http://localhost:3001
 VITE_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
 VITE_NETWORK_PASSPHRASE=Test SDF Network ; September 2015
 
-# Vault — testnet defaults
+# Vault - testnet defaults
 VITE_CONTRACT_ID=CC...
 VITE_ZAP_CONTRACT_ID=CC...
 VITE_VAULT_TOKEN_CONTRACT_ID=CC...
@@ -87,9 +87,10 @@ VITE_APP_URL=http://localhost:5173
 # VITE_GOOGLE_CLIENT_ID=
 ```
 
-## Production expectations
+## Preview and Production Expectations
 
-- All required variables above must be set in Vercel for both the Production and Preview environments.
-- Contract IDs must point at the network selected by `VITE_NETWORK_PASSPHRASE` and `VITE_SOROBAN_RPC_URL`. Mixing testnet contracts with mainnet RPC (or vice versa) is the most common deploy-time bug.
-- Do not promote a Preview build to Production without verifying the environment-specific values; Vercel scopes variables per environment so a missing Production override silently inherits the Preview value.
+- `VITE_API_BASE_URL` (preferred) or `VITE_API_URL` must be set in Vercel for Preview and Production. Preview builds intentionally do not fall back to `http://localhost:3001`; API-backed views should show an unavailable state until a backend URL is configured.
+- All other required variables above must be set in Vercel for both the Production and Preview environments.
+- Contract IDs must point at the network selected by `VITE_NETWORK_PASSPHRASE` and `VITE_SOROBAN_RPC_URL`. Mixing testnet contracts with mainnet RPC, or vice versa, is the most common deploy-time bug.
+- Do not promote a Preview build to Production without verifying the environment-specific values; Vercel scopes variables per environment so a missing Production override can cause confusing runtime behavior.
 - For rotation rollouts, change `VITE_VAULT_CONTRACT_ID` first, redeploy, then retire `VITE_CONTRACT_ID` in a follow-up release once the override has been verified.
