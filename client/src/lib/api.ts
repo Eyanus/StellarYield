@@ -1,6 +1,7 @@
 const LOCAL_API_BASE_URL = "http://localhost:3001";
+const SAME_ORIGIN_API_BASE_URL = "";
 const API_UNAVAILABLE_MESSAGE =
-  "Backend URL is not configured for this preview. Set VITE_API_BASE_URL or VITE_API_URL in Vercel preview environment variables.";
+  "Backend URL is not configured. Falling back to same-origin API routes.";
 
 export class ApiUnavailableError extends Error {
   constructor(message = API_UNAVAILABLE_MESSAGE) {
@@ -37,7 +38,7 @@ export function getApiBaseUrlState(
     return { available: true, baseUrl: LOCAL_API_BASE_URL };
   }
 
-  return { available: false, reason: API_UNAVAILABLE_MESSAGE };
+  return { available: true, baseUrl: SAME_ORIGIN_API_BASE_URL };
 }
 
 export function isApiUnavailableError(error: unknown): error is ApiUnavailableError {
