@@ -15,7 +15,7 @@ import {
   normalizeWeights,
   applyPreset,
 } from "./portfolioUtils";
-import RebalancePreview from "./RebalancePreview";
+import RebalancePreview from "./RebalancePreviewPanel";
 
 export interface PortfolioBuilderProps {
   walletAddress: string | null;

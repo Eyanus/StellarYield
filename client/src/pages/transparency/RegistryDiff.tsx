@@ -67,7 +67,7 @@ export default function RegistryDiffPage() {
             <h3 className="font-semibold capitalize">{net}</h3>
             <div>
               {/* warn if missing required entries */}
-              {((registryJson as any)[net] ? Object.values((registryJson as any)[net]).filter((v:string)=>!v || v==='').length : 0) > 0 && (
+              {((registryJson as any)[net] ? Object.values((registryJson as any)[net]).filter((v): v is string => typeof v === "string" && v === "").length : 0) > 0 && (
                 <StatusBadge variant="warning" label="Missing entries" />
               )}
             </div>

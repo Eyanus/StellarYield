@@ -1,6 +1,13 @@
 import React from 'react';
 import './PortfolioReconcile.css';
-import type { ReconcileRow } from '../../../server/src/services/portfolioReconcileService';
+
+export interface ReconcileRow {
+  asset: string;
+  expected: string | number;
+  observed: string | number | null;
+  delta: string | number | null;
+  severity: 'ok' | 'warning' | 'critical';
+}
 
 type Props = { rows: ReconcileRow[] };
 

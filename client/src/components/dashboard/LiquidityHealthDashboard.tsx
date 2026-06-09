@@ -104,10 +104,10 @@ export const LiquidityHealthDashboard: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-2 gap-4 mb-2">
-              <ComponentBar label="Depth" value={s.components.depth} color="bg-blue-500" />
-              <ComponentBar label="Spread" value={s.components.spread} color="bg-indigo-500" />
-              <ComponentBar label="Stability" value={s.components.stability} color="bg-cyan-500" />
-              <ComponentBar label="Withdrawal" value={s.components.withdrawalSensitivity} color="bg-teal-500" />
+              <ComponentBar label="Depth" value={s.components.depth} color="bg-blue-500" reducedMotion={reducedMotion} />
+              <ComponentBar label="Spread" value={s.components.spread} color="bg-indigo-500" reducedMotion={reducedMotion} />
+              <ComponentBar label="Stability" value={s.components.stability} color="bg-cyan-500" reducedMotion={reducedMotion} />
+              <ComponentBar label="Withdrawal" value={s.components.withdrawalSensitivity} color="bg-teal-500" reducedMotion={reducedMotion} />
             </div>
 
             {s.status === 'critical' && (
@@ -123,7 +123,7 @@ export const LiquidityHealthDashboard: React.FC = () => {
   );
 };
 
-const ComponentBar: React.FC<{ label: string; value: number; color: string }> = ({ label, value, color }) => (
+const ComponentBar: React.FC<{ label: string; value: number; color: string; reducedMotion: boolean }> = ({ label, value, color, reducedMotion }) => (
   <div>
     <div className="flex justify-between items-center mb-1">
       <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{label}</span>

@@ -5,6 +5,77 @@
 
 import type { BacktestRequest, BacktestResult, DailySnapshot } from "./types";
 
+interface ValidationError {
+    code: string;
+    message: string;
+    field?: string;
+}
+
+interface ValidationResult {
+    isValid: boolean;
+    errors: ValidationError[];
+}
+
+export function validateBacktestRequest(request: BacktestRequest): ValidationResult {
+    const errors: ValidationError[] = [];
+    const start = new Date(request.startDate);
+    const end = new Date(request.endDate);
+    const now = new Date();
+
+    if (Number.isNaN(start.getTime())) {
+        errors.push({
+            code: "INVALID_START_DATE",
+            message: "Start date must be a valid date.",
+            field: "startDate",
+        });
+    }
+
+    if (Number.isNaN(end.getTime())) {
+        errors.push({
+            code: "INVALID_END_DATE",
+            message: "End date must be a valid date.",
+            field: "endDate",
+        });
+    }
+
+    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+        if (start >= end) {
+            errors.push({
+                code: "INVALID_DATE_RANGE",
+                message: "Start date must be before end date.",
+                field: "startDate",
+            });
+        }
+
+        const maxWindowMs = 1000 * 60 * 60 * 24 * 365 * 2;
+        if (end.getTime() - start.getTime() > maxWindowMs) {
+            errors.push({
+                code: "DATE_RANGE_TOO_LONG",
+                message: "Maximum backtest window is 2 years.",
+                field: "endDate",
+            });
+        }
+
+        if (start > now || end > now) {
+            errors.push({
+                code: "FUTURE_DATE",
+                message: "Backtest dates must be in the past.",
+                field: "endDate",
+            });
+        }
+    }
+
+    if (request.depositAmount <= 0n) {
+        errors.push({
+            code: "INVALID_DEPOSIT_AMOUNT",
+            message: "Deposit amount must be greater than zero.",
+            field: "depositAmount",
+        });
+    }
+
+    return { isValid: errors.length === 0, errors };
+}
+
 /**
  * Fetch backtest data from backend
  * Backend validates date inputs to prevent heavy unindexed queries

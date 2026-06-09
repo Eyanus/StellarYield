@@ -139,8 +139,10 @@ export default function PnLChart() {
 
   // Partial data state: has deposits but no chart data
   const showPartialDataWarning = hasPartialData(pnlData);
+  const data = pnlData;
+  if (!data) return null;
 
-  const isProfit = pnlData.absolutePnL >= 0;
+  const isProfit = data.absolutePnL >= 0;
   const pnlColor = isProfit ? "text-green-400" : "text-red-400";
   const chartColor = isProfit ? "#4ade80" : "#f87171";
   const chartGradient = isProfit
@@ -163,16 +165,16 @@ export default function PnLChart() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Total Deposited" value={`$${fmt(pnlData.totalDeposited)}`} />
-        <StatCard label="Total Withdrawn" value={`$${fmt(pnlData.totalWithdrawn)}`} />
+        <StatCard label="Total Deposited" value={`$${fmt(data.totalDeposited)}`} />
+        <StatCard label="Total Withdrawn" value={`$${fmt(data.totalWithdrawn)}`} />
         <StatCard
           label="Current Value"
-          value={`$${fmt(pnlData.currentValue)}`}
+          value={`$${fmt(data.currentValue)}`}
           highlight
         />
         <StatCard
           label="Absolute PnL"
-          value={`${isProfit ? "+" : "-"}$${fmt(pnlData.absolutePnL)}`}
+          value={`${isProfit ? "+" : "-"}$${fmt(data.absolutePnL)}`}
           className={pnlColor}
         />
       </div>
@@ -181,16 +183,16 @@ export default function PnLChart() {
       <div className="flex items-center gap-3">
         <span className="text-gray-400 text-sm">Time-Weighted Return:</span>
         <span className={`text-lg font-bold ${pnlColor}`}>
-          {pnlData.twrPercent >= 0 ? "+" : ""}
-          {pnlData.twrPercent.toFixed(2)}%
+          {data.twrPercent >= 0 ? "+" : ""}
+          {data.twrPercent.toFixed(2)}%
         </span>
       </div>
 
       {/* PnL Chart */}
-      {pnlData.dailySnapshots.length > 0 ? (
+      {data.dailySnapshots.length > 0 ? (
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={pnlData.dailySnapshots}>
+            <AreaChart data={data.dailySnapshots}>
               <defs>
                 <linearGradient id="profitGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#4ade80" stopOpacity={0.3} />
