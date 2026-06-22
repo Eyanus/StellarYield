@@ -17,7 +17,7 @@ vi.mock("../../context/useWallet", () => ({
 
 // Mock the API module
 vi.mock("../../lib/api", () => ({
-  getApiBaseUrl: () => "http://localhost:3000",
+  apiUrl: (path: string) => `http://localhost:3000${path}`,
 }));
 
 describe("PnLChart", () => {
