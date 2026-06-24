@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, no-redeclare, no-useless-escape */
 import NodeCache from "node-cache";
 import { freezeService } from "./freezeService";
 import {

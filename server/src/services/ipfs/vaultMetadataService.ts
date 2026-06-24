@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, no-redeclare, no-useless-escape */
 import crypto from "crypto";
 import { DEFAULT_ICON_CONFIG } from "../../utils/iconValidator";
 

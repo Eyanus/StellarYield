@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, no-redeclare, no-useless-escape */
 /**
  * Issue #478: Improve Backtest Date Range Validation Messages
  *

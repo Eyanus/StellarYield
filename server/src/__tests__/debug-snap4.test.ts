@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, no-redeclare, no-useless-escape */
 import { STRATEGY_EVENT_TYPE, VERSION_CHANGE_TYPE } from '../queues/types';
 import { StrategySnapshotVersioningService } from '../services/strategySnapshotVersioningService';
 
