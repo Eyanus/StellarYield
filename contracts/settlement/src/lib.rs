@@ -741,9 +741,9 @@ mod tests {
     #[test]
     fn test_settle_trade_success() {
         let env = Env::default();
-        let (client, _, fee_recipient) = setup_contract(&env);
+        let (_client, _, _fee_recipient) = setup_contract(&env);
 
-        let data = create_test_settlement_data(&env);
+        let _data = create_test_settlement_data(&env);
 
         // Mock token transfers
         // Since we mock all auths, we don't strictly need to setup the mock token contracts
@@ -828,6 +828,7 @@ mod tests {
             std::fs::read_to_string("../../contracts/settlement/test_snapshots/fixture.json")
                 .expect("Could not read fixture (did you run matching_engine tests first?)");
 
+        #[allow(dead_code)]
         #[derive(serde::Deserialize)]
         struct FixtureData {
             settlement_id: std::string::String,

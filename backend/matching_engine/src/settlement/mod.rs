@@ -93,7 +93,7 @@ impl SettlementPayload {
             fee1: 0, // In production, calculated based on fee rules
             price: trade.price,
             timestamp: trade.timestamp,
-            expiration: trade.timestamp + 3600_000, // Expires in 1 hour
+            expiration: trade.timestamp + 3_600_000, // Expires in 1 hour
             maker_signature: String::new(),
             taker_signature: String::new(),
             engine_signature: String::new(),
