@@ -415,7 +415,7 @@ mod tests {
         let trade = create_test_trade();
         let mut settlement =
             SettlementPayload::from_trade(&trade, &maker_key, &taker_key, &engine_key).unwrap();
-        
+
         // For the end-to-end fixture, set fixed expiration and timestamp so we can test them deterministically
         settlement.data.timestamp = 1000000;
         settlement.data.expiration = 2000000;
@@ -429,7 +429,7 @@ mod tests {
         settlement.data.engine_signature = hex::encode(engine_sig.to_bytes());
 
         let fixture_json = serde_json::to_string_pretty(&settlement).unwrap();
-        
+
         let path = PathBuf::from("../../contracts/settlement/test_snapshots/fixture.json");
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).unwrap();

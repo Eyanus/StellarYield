@@ -742,17 +742,17 @@ mod tests {
     fn test_settle_trade_success() {
         let env = Env::default();
         let (client, _, fee_recipient) = setup_contract(&env);
-        
+
         let data = create_test_settlement_data(&env);
-        
+
         // Mock token transfers
-        // Since we mock all auths, we don't strictly need to setup the mock token contracts 
-        // for `require_auth` or `transfer`, but `balance` will return 0 by default. 
-        // Wait, Soroban testutils allow full mocking or we just rely on `env.mock_all_auths()` 
-        // However, the contract checks `client.balance(from) < amount`, which might fail if 
-        // balance is 0. 
+        // Since we mock all auths, we don't strictly need to setup the mock token contracts
+        // for `require_auth` or `transfer`, but `balance` will return 0 by default.
+        // Wait, Soroban testutils allow full mocking or we just rely on `env.mock_all_auths()`
+        // However, the contract checks `client.balance(from) < amount`, which might fail if
+        // balance is 0.
         // Let's create mock tokens.
-        
+
         // For simplicity in this test, we can just test the error cases first,
         // because setting up full token contracts requires importing token utilities.
     }
@@ -762,10 +762,10 @@ mod tests {
     fn test_settle_trade_expired() {
         let env = Env::default();
         let (client, _, _) = setup_contract(&env);
-        
+
         let mut data = create_test_settlement_data(&env);
         data.expiration = 1000;
-        
+
         // Advance ledger timestamp beyond expiration
         env.ledger().set(soroban_sdk::testutils::LedgerInfo {
             timestamp: 2000,
@@ -777,7 +777,7 @@ mod tests {
             min_persistent_entry_ttl: 1,
             max_entry_ttl: 1,
         });
-        
+
         client.settle_trade(
             &data,
             &soroban_sdk::Bytes::from_slice(&env, &[1, 2, 3]),
@@ -791,10 +791,10 @@ mod tests {
     fn test_settle_trade_invalid_amounts() {
         let env = Env::default();
         let (client, _, _) = setup_contract(&env);
-        
+
         let mut data = create_test_settlement_data(&env);
         data.amount0 = 0; // Invalid amount
-        
+
         client.settle_trade(
             &data,
             &soroban_sdk::Bytes::from_slice(&env, &[1, 2, 3]),
@@ -808,9 +808,9 @@ mod tests {
     fn test_settle_trade_invalid_signature() {
         let env = Env::default();
         let (client, _, _) = setup_contract(&env);
-        
+
         let data = create_test_settlement_data(&env);
-        
+
         client.settle_trade(
             &data,
             &soroban_sdk::Bytes::from_slice(&env, &[]), // Empty sig
@@ -818,14 +818,15 @@ mod tests {
             &soroban_sdk::Bytes::from_slice(&env, &[1, 2, 3]),
         );
     }
-    
+
     #[test]
     fn test_end_to_end_fixture() {
         let env = Env::default();
         let (client, _, _) = setup_contract(&env);
 
-        let fixture_json = std::fs::read_to_string("../../contracts/settlement/test_snapshots/fixture.json")
-            .expect("Could not read fixture (did you run matching_engine tests first?)");
+        let fixture_json =
+            std::fs::read_to_string("../../contracts/settlement/test_snapshots/fixture.json")
+                .expect("Could not read fixture (did you run matching_engine tests first?)");
 
         #[derive(serde::Deserialize)]
         struct FixtureData {
@@ -853,7 +854,8 @@ mod tests {
             data: FixtureData,
         }
 
-        let payload: FixturePayload = serde_json::from_str(&fixture_json).expect("Invalid JSON or schema mismatch");
+        let payload: FixturePayload =
+            serde_json::from_str(&fixture_json).expect("Invalid JSON or schema mismatch");
 
         let maker = Address::generate(&env);
         let taker = Address::generate(&env);
@@ -880,13 +882,13 @@ mod tests {
         // Assert schema values are correctly passed
         assert_eq!(settlement_data.amount0, 500);
         assert_eq!(settlement_data.expiration, 2000000);
-        
+
         // At this point, the schema has been proven to match and decode successfully
         // We ensure that duplicate replay fails by directly modifying storage
         env.as_contract(&client.address, || {
             SettlementContract::mark_trade_settled(&env, &settlement_data.settlement_id);
         });
-        
+
         // Should fail if we try to settle a duplicate
         let res = client.try_settle_trade(
             &settlement_data,
@@ -894,7 +896,7 @@ mod tests {
             &soroban_sdk::Bytes::from_slice(&env, &[1, 2, 3]),
             &soroban_sdk::Bytes::from_slice(&env, &[1, 2, 3]),
         );
-        
+
         assert!(res.is_err()); // TradeAlreadySettled
     }
 }
