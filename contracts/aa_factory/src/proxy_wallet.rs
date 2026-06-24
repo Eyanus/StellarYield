@@ -21,11 +21,11 @@ use soroban_sdk::{
 #[derive(Clone)]
 pub enum StorageKey {
     Initialized,
-    Owner,           // Primary owner address (can be a public key hash)
-    Nonce,           // Current nonce for replay protection
-    Factory,         // Factory contract address
-    Relayer,         // Trusted relayer address (stellaryield backend)
-    WebAuthnKey,     // WebAuthn public key for signature verification
+    Owner,            // Primary owner address (can be a public key hash)
+    Nonce,            // Current nonce for replay protection
+    Factory,          // Factory contract address
+    Relayer,          // Trusted relayer address (stellaryield backend)
+    WebAuthnKey,      // WebAuthn public key for signature verification
     UsedNonces,       // Map<u64, bool> - Track used nonces
     VaultAllowances,  // Map<Address, i128> - Approved vault contracts
     RecoveryContract, // Address of the linked recovery module

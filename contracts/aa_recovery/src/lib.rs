@@ -445,8 +445,7 @@ impl RecoveryModule {
             .instance()
             .set(&StorageKey::LinkedProxy, &proxy);
 
-        env.events()
-            .publish((symbol_short!("lnk_prxy"),), (proxy,));
+        env.events().publish((symbol_short!("lnk_prxy"),), (proxy,));
 
         Ok(())
     }
