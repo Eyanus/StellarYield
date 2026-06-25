@@ -5,7 +5,8 @@
     "smoke-test": "bash scripts/smoke-test.sh",
     "smoke-test:node": "node scripts/smoke-test.js",
     "smoke-test:portable": "node scripts/smoke-test.js",
-    "test:provenance": "vitest run tests/services/provenance.test.ts --coverage"
+    "test:provenance": "vitest run tests/services/provenance.test.ts --coverage",
+    "audit:api": "tsx scripts/audit-api-coverage.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",

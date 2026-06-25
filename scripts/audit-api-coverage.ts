@@ -1,0 +1,492 @@
+#!/usr/bin/env node
+/**
+ * API Coverage Audit Script
+ *
+ * This script audits frontend API calls and compares them against backend routes
+ * to identify missing endpoints, mismatches, and potential drift.
+ *
+ * Usage:
+ *   npx tsx scripts/audit-api-coverage.ts [--fix-report]
+ *
+ * The script scans:
+ * - client/src for apiUrl(...), getApiBaseUrl(), and direct fetch("/api/...") calls
+ * - server/src/app.ts and routes for registered backend endpoints
+ * - Generates a JSON report of findings
+ */
+
+import fs from "fs";
+import path from "path";
+import { execSync } from "child_process";
+
+interface EndpointPattern {
+  path: string;
+  method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+  source: string;
+  lineNumber?: number;
+}
+
+interface AuditFinding {
+  frontendEndpoint: EndpointPattern;
+  backendMatch: EndpointPattern | null;
+  issue: "missing" | "indirect" | "documented" | "ok";
+  severity: "error" | "warning" | "info";
+  explanation: string;
+}
+
+interface AuditReport {
+  timestamp: string;
+  frontendEndpoints: EndpointPattern[];
+  backendEndpoints: EndpointPattern[];
+  findings: AuditFinding[];
+  summary: {
+    totalFrontendCalls: number;
+    totalBackendRoutes: number;
+    missingRoutes: number;
+    undocumentedRoutes: number;
+    indirectCalls: number;
+  };
+  exceptions: string[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Allowlist for intentional exceptions / known mismatches
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AUDIT_ALLOWLIST = [
+  "/api/auth/challenge", // External identity provider — not registered in app.ts yet
+  "/api/auth/verify", // External identity provider — not registered in app.ts yet
+  "/api/graphql", // GraphQL endpoint — managed separately via yoga
+  "/api/events", // Internal diagnostics — may be disabled in some environments
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scanner: Extract frontend API calls
+// ─────────────────────────────────────────────────────────────────────────────
+
+function scanFrontendApis(clientDir: string): EndpointPattern[] {
+  const endpoints: EndpointPattern[] = [];
+  const seenPaths = new Set<string>();
+
+  // Regex patterns to match API calls
+  const patterns = [
+    // apiUrl("/api/path")
+    /apiUrl\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/g,
+    // fetch("/api/path")
+    /fetch\s*\(\s*["'`](\/api\/[^"'`]+)["'`]/g,
+    // fetch(apiUrl(...))
+    /fetch\s*\(\s*apiUrl\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/g,
+  ];
+
+  // Scan all TypeScript/TSX files
+  const tsFiles = execSync(
+    `find "${clientDir}" -type f \\( -name "*.ts" -o -name "*.tsx" \\)`,
+  )
+    .toString()
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+
+  for (const file of tsFiles) {
+    try {
+      const content = fs.readFileSync(file, "utf-8");
+      const lines = content.split("\n");
+
+      for (const pattern of patterns) {
+        let match;
+        while ((match = pattern.exec(content)) !== null) {
+          const pathStr = match[1];
+          if (!pathStr.startsWith("/api/")) continue;
+
+          // Normalize path (remove query params and fragments)
+          const normalizedPath = pathStr.split("?")[0].split("#")[0];
+
+          if (!seenPaths.has(normalizedPath)) {
+            seenPaths.add(normalizedPath);
+
+            // Try to determine HTTP method from context
+            const method = inferHttpMethod(content, match.index);
+            endpoints.push({
+              path: normalizedPath,
+              method,
+              source: file.replace(process.cwd(), "."),
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(`Warning: Could not scan ${file}: ${error}`);
+    }
+  }
+
+  return Array.from(endpoints.values()).sort((a, b) =>
+    a.path.localeCompare(b.path),
+  );
+}
+
+function inferHttpMethod(
+  content: string,
+  matchIndex: number,
+): "GET" | "POST" | "PUT" | "DELETE" | "PATCH" {
+  // Look backwards from match for HTTP method hints
+  const beforeMatch = content.substring(
+    Math.max(0, matchIndex - 200),
+    matchIndex,
+  );
+
+  if (/method\s*:\s*["'`]?(POST|PUT|DELETE|PATCH)["'`]?/i.test(beforeMatch)) {
+    const methodMatch = beforeMatch.match(
+      /method\s*:\s*["'`]?(POST|PUT|DELETE|PATCH)["'`]?/i,
+    );
+    return (methodMatch?.[1]?.toUpperCase() as any) || "GET";
+  }
+
+  if (
+    /["']method["']\s*,\s*["'](POST|PUT|DELETE|PATCH)["']/i.test(beforeMatch)
+  ) {
+    const methodMatch = beforeMatch.match(/["'](POST|PUT|DELETE|PATCH)["']/i);
+    return (methodMatch?.[1]?.toUpperCase() as any) || "GET";
+  }
+
+  // Default to GET if no method found
+  return "GET";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scanner: Extract backend routes
+// ─────────────────────────────────────────────────────────────────────────────
+
+function scanBackendRoutes(serverDir: string): EndpointPattern[] {
+  const endpoints: EndpointPattern[] = [];
+  const seenPaths = new Set<string>();
+
+  // Patterns for app.ts route registrations
+  const appTsPath = path.join(serverDir, "src", "app.ts");
+  try {
+    const appContent = fs.readFileSync(appTsPath, "utf-8");
+
+    // app.use("/api/path", router)
+    const routePattern =
+      /app\.use\s*\(\s*["'`]([/\w-]+)["'`]\s*,\s*\w+Router\s*\)/g;
+    let match;
+    while ((match = routePattern.exec(appContent)) !== null) {
+      const basePath = match[1];
+      endpoints.push({
+        path: basePath,
+        method: "GET" as const, // app.use handles all methods
+        source: appTsPath.replace(process.cwd(), "."),
+      });
+      seenPaths.add(basePath);
+    }
+
+    // Direct route registrations: app.get/post/put/delete/patch("/api/path", ...)
+    const directPattern =
+      /app\.(get|post|put|delete|patch)\s*\(\s*["'`]([^"'`]+)["'`]/gi;
+    while ((match = directPattern.exec(appContent)) !== null) {
+      const method = match[1].toUpperCase() as any;
+      const routePath = match[2];
+      if (!seenPaths.has(routePath)) {
+        endpoints.push({
+          path: routePath,
+          method,
+          source: appTsPath.replace(process.cwd(), "."),
+        });
+        seenPaths.add(routePath);
+      }
+    }
+  } catch (error) {
+    console.warn(`Warning: Could not read app.ts: ${error}`);
+  }
+
+  // Scan route files for router.get/post/put/delete/patch
+  const routesDir = path.join(serverDir, "src", "routes");
+  try {
+    const routeFiles = execSync(`find "${routesDir}" -name "*.ts" -type f`)
+      .toString()
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+
+    for (const file of routeFiles) {
+      try {
+        const content = fs.readFileSync(file, "utf-8");
+
+        // router.get/post/put/delete/patch("/path", ...)
+        const routerPattern =
+          /router\.(get|post|put|delete|patch)\s*\(\s*["'`]([^"'`]+)["'`]/gi;
+        let match;
+        while ((match = routerPattern.exec(content)) !== null) {
+          const method = match[1].toUpperCase() as any;
+          const routePath = match[2];
+
+          // Resolve the full path by finding the mount point in app.ts
+          const fullPath = resolveFullRoutePath(appContent, file, routePath);
+
+          if (!seenPaths.has(fullPath)) {
+            endpoints.push({
+              path: fullPath,
+              method,
+              source: file.replace(process.cwd(), "."),
+            });
+            seenPaths.add(fullPath);
+          }
+        }
+      } catch (error) {
+        console.warn(`Warning: Could not scan ${file}: ${error}`);
+      }
+    }
+  } catch (error) {
+    console.warn(`Warning: Could not scan routes directory: ${error}`);
+  }
+
+  return Array.from(endpoints.values()).sort((a, b) =>
+    a.path.localeCompare(b.path),
+  );
+}
+
+function resolveFullRoutePath(
+  appContent: string,
+  routeFile: string,
+  routePath: string,
+): string {
+  // Extract router name from route file (e.g., "yields" from "yields.ts")
+  const routerName = path.basename(routeFile, ".ts");
+  const camelCaseRouter = routerName.replace(/-./g, (x) => x[1].toUpperCase());
+  const pascalCaseRouter =
+    camelCaseRouter.charAt(0).toUpperCase() + camelCaseRouter.slice(1);
+
+  // Find the mount point in app.ts
+  const patterns = [
+    new RegExp(
+      `app\\.use\\(["'\`]([/\\w-]+)["'\`]\\s*,\\s*${routerName}Router\\s*\\)`,
+      "i",
+    ),
+    new RegExp(
+      `app\\.use\\(["'\`]([/\\w-]+)["'\`]\\s*,\\s*${camelCaseRouter}Router\\s*\\)`,
+      "i",
+    ),
+    new RegExp(
+      `app\\.use\\(["'\`]([/\\w-]+)["'\`]\\s*,\\s*${pascalCaseRouter}Router\\s*\\)`,
+      "i",
+    ),
+  ];
+
+  for (const pattern of patterns) {
+    const match = appContent.match(pattern);
+    if (match) {
+      return `${match[1]}${routePath === "/" ? "" : routePath}`;
+    }
+  }
+
+  // Fallback: assume /api/routerName
+  return `/api/${routerName}${routePath === "/" ? "" : routePath}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Comparator: Match frontend calls to backend routes
+// ─────────────────────────────────────────────────────────────────────────────
+
+function auditCoverage(
+  frontendEndpoints: EndpointPattern[],
+  backendEndpoints: EndpointPattern[],
+): AuditFinding[] {
+  const findings: AuditFinding[] = [];
+  const backendPaths = new Set(backendEndpoints.map((e) => e.path));
+
+  for (const frontend of frontendEndpoints) {
+    // Skip allowlisted endpoints
+    if (AUDIT_ALLOWLIST.some((allow) => frontend.path.startsWith(allow))) {
+      findings.push({
+        frontendEndpoint: frontend,
+        backendMatch: null,
+        issue: "documented",
+        severity: "info",
+        explanation: "Intentionally allowlisted in audit configuration",
+      });
+      continue;
+    }
+
+    // Exact match
+    if (backendPaths.has(frontend.path)) {
+      const match = backendEndpoints.find((e) => e.path === frontend.path);
+      findings.push({
+        frontendEndpoint: frontend,
+        backendMatch: match || null,
+        issue: "ok",
+        severity: "info",
+        explanation: "Route found and matches frontend call",
+      });
+      continue;
+    }
+
+    // Prefix match (e.g., /api/users/123 matches /api/users)
+    const prefixMatch = backendEndpoints.find(
+      (e) => frontend.path.startsWith(e.path + "/") || frontend.path === e.path,
+    );
+
+    if (prefixMatch) {
+      findings.push({
+        frontendEndpoint: frontend,
+        backendMatch: prefixMatch,
+        issue: "ok",
+        severity: "info",
+        explanation: `Route found under base path ${prefixMatch.path}`,
+      });
+      continue;
+    }
+
+    // No match
+    findings.push({
+      frontendEndpoint: frontend,
+      backendMatch: null,
+      issue: "missing",
+      severity: "error",
+      explanation: `Frontend calls ${frontend.path} but no matching backend route found. This may cause runtime errors in production.`,
+    });
+  }
+
+  return findings;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Report Generation
+// ─────────────────────────────────────────────────────────────────────────────
+
+function generateReport(
+  frontendEndpoints: EndpointPattern[],
+  backendEndpoints: EndpointPattern[],
+  findings: AuditFinding[],
+): AuditReport {
+  const missingRoutes = findings.filter((f) => f.issue === "missing").length;
+  const indirectCalls = findings.filter((f) => f.issue === "indirect").length;
+  const undocumentedRoutes = backendEndpoints.filter(
+    (b) => !findings.some((f) => f.backendMatch?.path === b.path),
+  ).length;
+
+  return {
+    timestamp: new Date().toISOString(),
+    frontendEndpoints,
+    backendEndpoints,
+    findings: findings.sort((a, b) => {
+      const severityOrder = { error: 0, warning: 1, info: 2 };
+      return severityOrder[a.severity] - severityOrder[b.severity];
+    }),
+    summary: {
+      totalFrontendCalls: frontendEndpoints.length,
+      totalBackendRoutes: backendEndpoints.length,
+      missingRoutes,
+      undocumentedRoutes,
+      indirectCalls,
+    },
+    exceptions: AUDIT_ALLOWLIST,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Output Formatting
+// ─────────────────────────────────────────────────────────────────────────────
+
+function printReport(report: AuditReport): void {
+  console.log(
+    "\n╔════════════════════════════════════════════════════════════════╗",
+  );
+  console.log(
+    "║          API Coverage Audit Report                              ║",
+  );
+  console.log(
+    "╚════════════════════════════════════════════════════════════════╝\n",
+  );
+
+  console.log(`📊 Summary (${report.timestamp}):`);
+  console.log(`  Frontend Calls:      ${report.summary.totalFrontendCalls}`);
+  console.log(`  Backend Routes:      ${report.summary.totalBackendRoutes}`);
+  console.log(`  ❌ Missing Routes:    ${report.summary.missingRoutes}`);
+  console.log(`  ⚠️  Undocumented:     ${report.summary.undocumentedRoutes}`);
+  console.log(`  🔀 Indirect Calls:   ${report.summary.indirectCalls}`);
+  console.log();
+
+  if (report.summary.missingRoutes > 0) {
+    console.log("❌ Missing Backend Routes:");
+    report.findings
+      .filter((f) => f.issue === "missing")
+      .forEach((f) => {
+        console.log(
+          `  • ${f.frontendEndpoint.path} (${f.frontendEndpoint.method})`,
+        );
+        console.log(`    From: ${f.frontendEndpoint.source}`);
+        console.log(`    Issue: ${f.explanation}\n`);
+      });
+  }
+
+  if (report.summary.undocumentedRoutes > 0) {
+    console.log("⚠️  Undocumented Backend Routes (not called from frontend):");
+    const undocumented = report.backendEndpoints.filter(
+      (b) =>
+        !report.findings.some(
+          (f) => f.backendMatch?.path === b.path && f.issue !== "missing",
+        ),
+    );
+    undocumented.slice(0, 10).forEach((e) => {
+      console.log(`  • ${e.path} (${e.method})`);
+    });
+    if (undocumented.length > 10) {
+      console.log(`  ... and ${undocumented.length - 10} more`);
+    }
+    console.log();
+  }
+
+  if (
+    report.summary.missingRoutes === 0 &&
+    report.summary.undocumentedRoutes === 0
+  ) {
+    console.log("✅ All frontend API calls have matching backend routes!");
+    console.log();
+  }
+
+  console.log(`📋 Full report saved to: api-coverage-report.json`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main Entry Point
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  const clientDir = path.join(process.cwd(), "client", "src");
+  const serverDir = path.join(process.cwd(), "server");
+
+  console.log("🔍 Scanning frontend API calls...");
+  const frontendEndpoints = scanFrontendApis(clientDir);
+  console.log(
+    `   Found ${frontendEndpoints.length} unique frontend API calls\n`,
+  );
+
+  console.log("🔍 Scanning backend routes...");
+  const backendEndpoints = scanBackendRoutes(serverDir);
+  console.log(`   Found ${backendEndpoints.length} backend endpoints\n`);
+
+  console.log("📊 Auditing coverage...");
+  const findings = auditCoverage(frontendEndpoints, backendEndpoints);
+
+  const report = generateReport(frontendEndpoints, backendEndpoints, findings);
+
+  // Save report to JSON file
+  const reportPath = path.join(process.cwd(), "api-coverage-report.json");
+  fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+
+  // Print formatted report
+  printReport(report);
+
+  // Exit with error code if there are missing routes
+  if (report.summary.missingRoutes > 0) {
+    console.log(
+      `\n⚠️  Found ${report.summary.missingRoutes} missing backend routes!`,
+    );
+    process.exit(1);
+  }
+
+  process.exit(0);
+}
+
+main().catch((error) => {
+  console.error("❌ Audit failed:", error);
+  process.exit(1);
+});
