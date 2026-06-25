@@ -1,5 +1,11 @@
 use soroban_sdk::{contracttype, Address, Env};
 
+/// Low watermark: keys older than this many ledgers trigger a bump.
+pub const TTL_LOW_WATERMARK_LEDGERS: u32 = 100_000; // ~5-7 days at ~6 sec blocks
+
+/// Amount to extend TTL by when bumping.
+pub const TTL_BUMP_LEDGER_AMOUNT: u32 = 250_000; // ~14 days
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
@@ -66,9 +72,17 @@ pub fn write_option_counter(e: &Env, counter: u32) {
 }
 
 pub fn read_option(e: &Env, id: u32) -> OptionData {
-    e.storage().persistent().get(&DataKey::Option(id)).unwrap()
+    let key = DataKey::Option(id);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_LOW_WATERMARK_LEDGERS, TTL_BUMP_LEDGER_AMOUNT);
+    e.storage().persistent().get(&key).unwrap()
 }
 
 pub fn write_option(e: &Env, id: u32, option: &OptionData) {
-    e.storage().persistent().set(&DataKey::Option(id), option);
+    let key = DataKey::Option(id);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_LOW_WATERMARK_LEDGERS, TTL_BUMP_LEDGER_AMOUNT);
+    e.storage().persistent().set(&key, option);
 }
