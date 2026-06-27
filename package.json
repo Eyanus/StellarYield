@@ -14,5 +14,8 @@
   },
   "optionalDependencies": {
     "@rolldown/binding-win32-x64-msvc": "^1.0.0-rc.17"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4"
   }
 }

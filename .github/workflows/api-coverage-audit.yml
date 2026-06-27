@@ -50,6 +50,10 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            if (!fs.existsSync('api-coverage-report.json')) {
+              console.log('Report file not found, skipping comment');
+              return;
+            }
             const report = JSON.parse(fs.readFileSync('api-coverage-report.json', 'utf8'));
             const { summary } = report;
 
