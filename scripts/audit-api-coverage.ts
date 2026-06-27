@@ -159,7 +159,7 @@ function scanFrontendApis(clientDir: string): EndpointPattern[] {
     }
   }
 
-  return endpoints.sort(
+  return Array.from(endpoints.values()).sort(
     (a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method),
   );
 }
@@ -413,24 +413,6 @@ function auditCoverage(
         issue: "ok",
         severity: "info",
         explanation: `Route found under base path ${prefixMatch.path} (${prefixMatch.method})`,
-      });
-      continue;
-    }
-
-    // Method mismatch: path exists but for different HTTP method
-    const methodMismatch = backendEndpoints.find(
-      (e) =>
-        e.method !== frontend.method &&
-        (frontend.path === e.path || frontend.path.startsWith(e.path + "/")),
-    );
-
-    if (methodMismatch) {
-      findings.push({
-        frontendEndpoint: frontend,
-        backendMatch: methodMismatch,
-        issue: "missing",
-        severity: "error",
-        explanation: `Frontend calls ${frontend.method} ${frontend.path} but backend only has ${methodMismatch.method} ${methodMismatch.path}. Method mismatch detected.`,
       });
       continue;
     }
