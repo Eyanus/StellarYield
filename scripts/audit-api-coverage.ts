@@ -137,11 +137,15 @@ function scanFrontendApis(clientDir: string): EndpointPattern[] {
           // Normalize path (remove query params and fragments)
           const normalizedPath = pathStr.split("?")[0].split("#")[0];
 
-          if (!seenPaths.has(normalizedPath)) {
-            seenPaths.add(normalizedPath);
+          // Try to determine HTTP method from context
+          const method = inferHttpMethod(content, match.index);
 
-            // Try to determine HTTP method from context
-            const method = inferHttpMethod(content, match.index);
+          // Use composite key of method + path to avoid collapsing different HTTP methods
+          const compositeKey = `${method} ${normalizedPath}`;
+
+          if (!seenPaths.has(compositeKey)) {
+            seenPaths.add(compositeKey);
+
             endpoints.push({
               path: normalizedPath,
               method,
@@ -155,8 +159,8 @@ function scanFrontendApis(clientDir: string): EndpointPattern[] {
     }
   }
 
-  return Array.from(endpoints.values()).sort((a, b) =>
-    a.path.localeCompare(b.path),
+  return Array.from(endpoints.values()).sort(
+    (a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method),
   );
 }
 
@@ -211,13 +215,16 @@ function scanBackendRoutes(serverDir: string): EndpointPattern[] {
     let match;
     while ((match = routePattern.exec(appContent)) !== null) {
       const basePath = match[1];
-      if (!seenPaths.has(basePath)) {
+      // For app.use, we don't know the specific method, so use a wildcard approach
+      // Store both the path and mark it as a base path that handles all methods
+      const compositeKey = `* ${basePath}`;
+      if (!seenPaths.has(compositeKey)) {
         endpoints.push({
           path: basePath,
-          method: "GET" as const, // app.use handles all methods
+          method: "GET" as const, // app.use handles all methods, default to GET for matching
           source: appTsPath.replace(process.cwd(), "."),
         });
-        seenPaths.add(basePath);
+        seenPaths.add(compositeKey);
       }
     }
 
@@ -227,13 +234,14 @@ function scanBackendRoutes(serverDir: string): EndpointPattern[] {
     while ((match = directPattern.exec(appContent)) !== null) {
       const method = match[1].toUpperCase() as any;
       const routePath = match[2];
-      if (!seenPaths.has(routePath)) {
+      const compositeKey = `${method} ${routePath}`;
+      if (!seenPaths.has(compositeKey)) {
         endpoints.push({
           path: routePath,
           method,
           source: appTsPath.replace(process.cwd(), "."),
         });
-        seenPaths.add(routePath);
+        seenPaths.add(compositeKey);
       }
     }
   } catch (error) {
@@ -262,14 +270,15 @@ function scanBackendRoutes(serverDir: string): EndpointPattern[] {
 
           // Resolve the full path by finding the mount point in app.ts
           const fullPath = resolveFullRoutePath(appContent, file, routePath);
+          const compositeKey = `${method} ${fullPath}`;
 
-          if (!seenPaths.has(fullPath)) {
+          if (!seenPaths.has(compositeKey)) {
             endpoints.push({
               path: fullPath,
               method,
               source: file.replace(process.cwd(), "."),
             });
-            seenPaths.add(fullPath);
+            seenPaths.add(compositeKey);
           }
         }
       } catch (error) {
@@ -280,8 +289,8 @@ function scanBackendRoutes(serverDir: string): EndpointPattern[] {
     console.warn(`Warning: Could not scan routes directory:`, error);
   }
 
-  return Array.from(endpoints.values()).sort((a, b) =>
-    a.path.localeCompare(b.path),
+  return Array.from(endpoints.values()).sort(
+    (a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method),
   );
 }
 
@@ -332,7 +341,15 @@ function auditCoverage(
   backendEndpoints: EndpointPattern[],
 ): AuditFinding[] {
   const findings: AuditFinding[] = [];
-  const backendPaths = new Set(backendEndpoints.map((e) => e.path));
+  const backendMap = new Map<string, EndpointPattern[]>();
+
+  // Build a map of path -> [endpoints] for backend (to handle multiple methods)
+  for (const endpoint of backendEndpoints) {
+    if (!backendMap.has(endpoint.path)) {
+      backendMap.set(endpoint.path, []);
+    }
+    backendMap.get(endpoint.path)!.push(endpoint);
+  }
 
   for (const frontend of frontendEndpoints) {
     // Skip allowlisted endpoints
@@ -347,12 +364,14 @@ function auditCoverage(
       continue;
     }
 
-    // Exact match
-    if (backendPaths.has(frontend.path)) {
-      const match = backendEndpoints.find((e) => e.path === frontend.path);
+    // Exact match with same method
+    const backendAtPath = backendMap.get(frontend.path) || [];
+    const exactMatch = backendAtPath.find((e) => e.method === frontend.method);
+
+    if (exactMatch) {
       findings.push({
         frontendEndpoint: frontend,
-        backendMatch: match || null,
+        backendMatch: exactMatch,
         issue: "ok",
         severity: "info",
         explanation: "Route found and matches frontend call",
@@ -360,9 +379,31 @@ function auditCoverage(
       continue;
     }
 
-    // Prefix match (e.g., /api/users/123 matches /api/users)
+    // Check for wildcard match (app.use routes that handle all methods)
+    const wildcardMatch = backendAtPath.find(
+      (e) =>
+        e.method === "GET" &&
+        backendEndpoints.some(
+          (be) => be.path === e.path && be.method === "GET",
+        ),
+    );
+
+    if (wildcardMatch) {
+      findings.push({
+        frontendEndpoint: frontend,
+        backendMatch: wildcardMatch,
+        issue: "ok",
+        severity: "info",
+        explanation: `Route found and handled by base path ${wildcardMatch.path}`,
+      });
+      continue;
+    }
+
+    // Prefix match with same method (e.g., /api/users/123 matches /api/users for GET)
     const prefixMatch = backendEndpoints.find(
-      (e) => frontend.path.startsWith(e.path + "/") || frontend.path === e.path,
+      (e) =>
+        e.method === frontend.method &&
+        (frontend.path.startsWith(e.path + "/") || frontend.path === e.path),
     );
 
     if (prefixMatch) {
@@ -371,18 +412,18 @@ function auditCoverage(
         backendMatch: prefixMatch,
         issue: "ok",
         severity: "info",
-        explanation: `Route found under base path ${prefixMatch.path}`,
+        explanation: `Route found under base path ${prefixMatch.path} (${prefixMatch.method})`,
       });
       continue;
     }
 
-    // No match
+    // No match found
     findings.push({
       frontendEndpoint: frontend,
       backendMatch: null,
       issue: "missing",
       severity: "error",
-      explanation: `Frontend calls ${frontend.path} but no matching backend route found. This may cause runtime errors in production.`,
+      explanation: `Frontend calls ${frontend.method} ${frontend.path} but no matching backend route found. This may cause runtime errors in production.`,
     });
   }
 
