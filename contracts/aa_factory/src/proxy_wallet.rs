@@ -813,6 +813,21 @@ mod tests {
         (client, owner, factory, relayer, nid)
     }
 
+    fn setup_proxy_wallet(env: &Env) -> (ProxyWalletClient<'_>, Address, Address) {
+        env.mock_all_auths();
+
+        let contract_id = env.register(ProxyWallet, ());
+        let client = ProxyWalletClient::new(env, &contract_id);
+
+        let owner = Address::generate(env);
+        let factory = Address::generate(env);
+        let nid = testnet_network_id(env);
+
+        client.initialize(&owner, &factory, &None, &nid);
+
+        (client, owner, factory)
+    }
+
     fn make_op(
         env: &Env,
         sender: Address,
