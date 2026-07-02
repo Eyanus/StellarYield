@@ -17,6 +17,7 @@ vi.mock("../../context/useWallet", () => ({
 
 // Mock the API module
 vi.mock("../../lib/api", () => ({
+  apiUrl: (path: string) => `http://localhost:3000${path}`,
   apiUrl: vi.fn((path: string) => `http://localhost:3000${path}`),
 }));
 
