@@ -187,7 +187,10 @@ fn test_user_lock_ttl_bumped_on_read() {
 
     // Step 1: Read the user lock (should bump TTL)
     let lock_before = crate::storage::read_user_lock(&env, &user);
-    assert!(lock_before.is_some(), "User lock should exist after create_lock");
+    assert!(
+        lock_before.is_some(),
+        "User lock should exist after create_lock"
+    );
 
     // Step 2: Advance ledger to just past the original TTL watermark
     // TTL_LOW_WATERMARK_LEDGERS = 100_000, so set to initial_seq + 100_001

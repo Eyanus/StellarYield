@@ -465,7 +465,10 @@ fn test_position_ttl_bumped_on_read() {
 
     // Step 1: Read the position (should bump TTL)
     let pos_before = crate::storage::read_position(&t.env, &user);
-    assert!(pos_before.is_some(), "Position should exist after open_position");
+    assert!(
+        pos_before.is_some(),
+        "Position should exist after open_position"
+    );
 
     // Step 2: Advance ledger to just past the original TTL watermark
     // TTL_LOW_WATERMARK_LEDGERS = 100_000, so set to initial_seq + 100_001
