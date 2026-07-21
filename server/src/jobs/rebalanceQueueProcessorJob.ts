@@ -1,30 +1,33 @@
 import {
-  PartialFillConfig,
-  RebalanceExecutionResult,
-  RebalanceQueueEntryDTO,
-  rebalanceQueueService,
-} from '../services/rebalanceQueueService';
+  ExecutionAdapter,
+  ExecutionSimulationResult,
+  ExecutionSubmitResult,
+  RebalanceExecutionRequest,
+} from '../services/rebalanceExecutionAdapter';
+import { rebalanceQueueService, PartialFillConfig } from '../services/rebalanceQueueService';
+import { REBALANCE_STATUS } from '../queues/types';
 
-/**
- * Rebalance Queue Processor Job
- *
- * Processes items from the rebalance queue:
- * - Handles retries of failed executions
- * - Processes deferred entries when ready
- * - Manages partial fills and follow-ups
- * - Prevents replay of stale intents
- *
- * Can be triggered via cron schedule or called directly.
- */
+export interface QueueEntryForProcessing {
+  id: string;
+  vaultId: string;
+  status: string;
+  targetAllocations: Record<string, number>;
+  currentAllocations: Record<string, number>;
+  executionStrategy: Record<string, unknown>;
+  intentHash: string;
+  triggeredBy?: string;
+  lastTransactionHash?: string | null;
+}
 
 export interface JobConfig {
   enabled: boolean;
-  schedule?: string; // Cron expression (optional if triggered manually)
-  batchSize: number; // Process N items per job run
+  schedule?: string;
+  batchSize: number;
   enableRetries: boolean;
   enableDeferredProcessing: boolean;
   partialFillConfig?: Partial<PartialFillConfig>;
   logResults: boolean;
+  executionAdapter: ExecutionAdapter;
 }
 
 export interface RebalanceQueueProcessorService {
@@ -57,10 +60,6 @@ const REBALANCE_RESULT_MAX_AGE_MS = Number(
 
 let jobHandle: ReturnType<typeof setInterval> | null = null;
 
-/**
- * Start the rebalance queue processor job.
- * Runs on an interval to process pending and deferred items.
- */
 export function startRebalanceQueueProcessorJob(
   config: Partial<JobConfig> = {},
 ): void {
@@ -71,6 +70,7 @@ export function startRebalanceQueueProcessorJob(
     enableDeferredProcessing: config.enableDeferredProcessing !== false,
     partialFillConfig: config.partialFillConfig,
     logResults: config.logResults !== false,
+    executionAdapter: config.executionAdapter!,
   };
 
   if (!finalConfig.enabled) {
@@ -78,7 +78,10 @@ export function startRebalanceQueueProcessorJob(
     return;
   }
 
-  // Run job every 30 seconds
+  if (!finalConfig.executionAdapter) {
+    throw new Error('executionAdapter is required for rebalance queue processor job');
+  }
+
   const intervalMs = 30000;
   console.log(
     `Starting rebalance queue processor job (interval: ${intervalMs}ms, batch size: ${finalConfig.batchSize})`,
@@ -93,9 +96,6 @@ export function startRebalanceQueueProcessorJob(
   }, intervalMs);
 }
 
-/**
- * Stop the rebalance queue processor job.
- */
 export function stopRebalanceQueueProcessorJob(): void {
   if (jobHandle) {
     clearInterval(jobHandle);
@@ -104,24 +104,7 @@ export function stopRebalanceQueueProcessorJob(): void {
   }
 }
 
-/**
- * Run the rebalance queue processor job.
- * Processes retries, deferred items, and handles failures.
- */
-export async function runRebalanceQueueProcessorJob(
-  config: JobConfig,
-  deps?: RebalanceQueueProcessorDependencies,
-): Promise<{
-  success: boolean;
-  processedRetries: number;
-  processedDeferred: number;
-  failedProcessing: number;
-  timestamp: string;
-}>;
-export async function runRebalanceQueueProcessorJob(
-  config: JobConfig,
-  deps: RebalanceQueueProcessorDependencies = {},
-): Promise<{
+export async function runRebalanceQueueProcessorJob(config: JobConfig): Promise<{
   success: boolean;
   processedRetries: number;
   processedDeferred: number;
@@ -135,7 +118,6 @@ export async function runRebalanceQueueProcessorJob(
   const queueService = deps.queueService ?? rebalanceQueueService;
 
   try {
-    // Process retries
     if (config.enableRetries) {
       const pendingRetries = await queueService.getPendingRetries();
       const toProcess = pendingRetries.slice(0, config.batchSize);
@@ -152,17 +134,15 @@ export async function runRebalanceQueueProcessorJob(
           console.error(`Failed to process retry for entry ${entry.id}:`, error);
           failedProcessing++;
 
-          // Record the failure
-          await queueService.recordFailedAttempt(
+          await rebalanceQueueService.recordFailedAttempt(
             entry.id,
             `Job processing failed: ${error instanceof Error ? error.message : String(error)}`,
-            config.partialFillConfig,
+            { errorClass: 'terminal', executionMetadata: { jobError: true } },
           );
         }
       }
     }
 
-    // Process deferred items
     if (config.enableDeferredProcessing) {
       const deferredEntries = await queueService.getDeferredEntries();
       const toProcess = deferredEntries.slice(0, config.batchSize);
@@ -179,11 +159,10 @@ export async function runRebalanceQueueProcessorJob(
           console.error(`Failed to process deferred entry ${entry.id}:`, error);
           failedProcessing++;
 
-          // Record the failure
-          await queueService.recordFailedAttempt(
+          await rebalanceQueueService.recordFailedAttempt(
             entry.id,
             `Job processing failed: ${error instanceof Error ? error.message : String(error)}`,
-            config.partialFillConfig,
+            { errorClass: 'terminal', executionMetadata: { jobError: true } },
           );
         }
       }
@@ -193,8 +172,8 @@ export async function runRebalanceQueueProcessorJob(
       const elapsed = Date.now() - startTime;
       console.log(
         `Rebalance queue processor job completed: ` +
-        `${processedRetries} retries, ${processedDeferred} deferred, ` +
-        `${failedProcessing} failed (${elapsed}ms)`,
+          `${processedRetries} retries, ${processedDeferred} deferred, ` +
+          `${failedProcessing} failed (${elapsed}ms)`,
       );
     }
 
@@ -217,110 +196,107 @@ export async function runRebalanceQueueProcessorJob(
   }
 }
 
-/**
- * Process a single queue entry.
- * This is where the actual rebalance execution would be called.
- */
 async function processQueueEntry(
-  entry: RebalanceQueueEntryDTO,
+  entry: QueueEntryForProcessing,
   config: JobConfig,
-  deps: RebalanceQueueProcessorDependencies,
 ): Promise<void> {
-  const queueService = deps.queueService ?? rebalanceQueueService;
-  const executeRebalance = deps.executeRebalance ?? defaultExecuteRebalance;
-  const now = deps.now ?? Date.now;
+  const queueEntryId = entry.id;
 
-  // Mark as processing
-  await queueService.markAsProcessing(entry.id);
-
-  const executionResult = await executeRebalance(entry);
-  validateExecutionResult(executionResult, now());
-
-  // Record execution result
-  await queueService.recordPartialExecution(
-    entry.id,
-    executionResult,
-    config.partialFillConfig,
-  );
-}
-
-function defaultExecuteRebalance(
-  entry: RebalanceQueueEntryDTO,
-): Promise<RebalanceExecutionResult> {
-  return Promise.resolve({
-    queueEntryId: entry.id,
-    totalExecuted: 100,
-    expectedAmount: 100,
-    filledPercentage: 100,
-    transactionHash: `0x${Math.random().toString(16).slice(2)}`,
-    executionDetails: {
-      status: 'completed',
-      allocationsAdjusted: entry.targetAllocations,
-      timestamp: new Date().toISOString(),
-    },
-  });
-}
-
-function validateExecutionResult(
-  result: RebalanceExecutionResult,
-  now: number,
-): void {
-  if (!result || typeof result !== 'object') {
-    throw new Error('Malformed rebalance execution result.');
+  if (entry.status === REBALANCE_STATUS.COMPLETED && entry.lastTransactionHash) {
+    return;
   }
 
-  if (typeof result.queueEntryId !== 'string' || result.queueEntryId.length === 0) {
-    throw new Error('Malformed rebalance execution result: missing queueEntryId.');
+  await rebalanceQueueService.markAsProcessing(queueEntryId);
+
+  const request: RebalanceExecutionRequest = {
+    queueEntryId,
+    vaultId: entry.vaultId,
+    vaultContractId: entry.vaultId,
+    targetAllocations: entry.targetAllocations,
+    currentAllocations: entry.currentAllocations,
+    executionStrategy: entry.executionStrategy,
+    intentHash: entry.intentHash,
+    adminAddress: entry.triggeredBy ?? undefined,
+  };
+
+  const simulationResult = await config.executionAdapter.simulate(request);
+  if (!simulationResult.success) {
+    await rebalanceQueueService.recordFailedAttempt(
+      queueEntryId,
+      simulationResult.error ?? 'Simulation failed',
+      {
+        ...config.partialFillConfig,
+        errorClass: simulationResult.errorClass ?? 'terminal',
+        executionMetadata: simulationResult.metadata,
+      },
+    );
+    return;
   }
 
-  if (
-    !Number.isFinite(result.totalExecuted) ||
-    !Number.isFinite(result.expectedAmount) ||
-    !Number.isFinite(result.filledPercentage)
-  ) {
-    throw new Error('Malformed rebalance execution result: numeric fields are invalid.');
-  }
+  const submitResult = await config.executionAdapter.submit(request);
 
-  if (
-    result.filledPercentage < 0 ||
-    result.filledPercentage > 100
-  ) {
-    throw new Error('Malformed rebalance execution result: filledPercentage must be between 0 and 100.');
-  }
+  if (submitResult.success) {
+    await rebalanceQueueService.recordSubmission(
+      queueEntryId,
+      submitResult.transactionHash ?? '',
+      submitResult.ledger ?? 0,
+      submitResult.errorClass,
+      submitResult.metadata,
+    );
 
-  const executionDetails =
-    result.executionDetails && typeof result.executionDetails === 'object'
-      ? (result.executionDetails as Record<string, unknown>)
-      : null;
+    const filledPercentage = (submitResult.metadata?.filledPercentage as number | undefined) ?? 100;
+    const totalExecuted = (submitResult.metadata?.totalExecuted as number | undefined) ?? filledPercentage;
 
-  if (!executionDetails) {
-    throw new Error('Malformed rebalance execution result: executionDetails missing.');
-  }
-
-  const rawTimestamp = executionDetails.timestamp ?? executionDetails.executedAt;
-  if (rawTimestamp !== undefined) {
-    const parsedTimestamp =
-      rawTimestamp instanceof Date
-        ? rawTimestamp.getTime()
-        : typeof rawTimestamp === 'string'
-          ? new Date(rawTimestamp).getTime()
-          : Number.NaN;
-
-    if (!Number.isFinite(parsedTimestamp)) {
-      throw new Error('Malformed rebalance execution result: invalid execution timestamp.');
+    if (filledPercentage >= 100) {
+      await rebalanceQueueService.markAsCompleted(
+        queueEntryId,
+        submitResult.transactionHash,
+        submitResult.ledger,
+        submitResult.errorClass,
+        submitResult.metadata,
+      );
+    } else {
+      await rebalanceQueueService.recordPartialExecution(
+        queueEntryId,
+        {
+          queueEntryId,
+          totalExecuted,
+          expectedAmount: 100,
+          filledPercentage,
+          transactionHash: submitResult.transactionHash,
+          executionDetails: {
+            status: 'partial',
+            ...submitResult.metadata,
+          },
+        },
+        {
+          ...config.partialFillConfig,
+          ledger: submitResult.ledger,
+          errorClass: submitResult.errorClass,
+          executionMetadata: submitResult.metadata,
+        },
+      );
     }
-
-    if (now - parsedTimestamp > REBALANCE_RESULT_MAX_AGE_MS) {
-      throw new Error('Stale rebalance execution result received from upstream executor.');
-    }
+  } else {
+    const isTerminal = submitResult.errorClass === 'terminal';
+    await rebalanceQueueService.recordFailedAttempt(
+      queueEntryId,
+      submitResult.error ?? 'Submission failed',
+      {
+        ...config.partialFillConfig,
+        maxRetries: isTerminal ? 0 : config.partialFillConfig?.maxRetries,
+        errorClass: submitResult.errorClass ?? 'terminal',
+        transactionHash: submitResult.transactionHash,
+        ledger: submitResult.ledger,
+        executionMetadata: submitResult.metadata,
+      },
+    );
   }
 }
 
-/**
- * Manually trigger queue processing for testing/admin purposes.
- */
 export async function triggerQueueProcessing(
   batchSize = 10,
+  executionAdapter: ExecutionAdapter,
 ): Promise<{
   retries: number;
   deferred: number;
@@ -332,6 +308,7 @@ export async function triggerQueueProcessing(
     enableRetries: true,
     enableDeferredProcessing: true,
     logResults: true,
+    executionAdapter,
   });
 
   return {
