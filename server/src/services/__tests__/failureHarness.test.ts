@@ -19,7 +19,6 @@
  *   evaluateOracle() must return decision === "BLOCK".
  */
 
-import { describe, it, expect, beforeEach } from "@jest/globals";
 import fc from "fast-check";
 
 // ── Services under test ────────────────────────────────────────────────────
@@ -56,7 +55,6 @@ import { MockExecutionAdapter } from "../rebalanceExecutionAdapter";
 import { runRebalanceQueueProcessorJob } from "../../jobs/rebalanceQueueProcessorJob";
 import { REBALANCE_STATUS, EXECUTION_TYPE } from "../../queues/types";
 import type {
-  RebalanceExecutionResult,
   RebalanceQueueEntryDTO,
 } from "../rebalanceQueueService";
 
@@ -71,7 +69,6 @@ import {
 import {
   buildHarnessFor,
   FailureMode,
-  mockHorizonCall,
 } from "./failureHarness";
 
 // ── Local reading factories ────────────────────────────────────────────────
@@ -260,7 +257,7 @@ describe("Failure class: STALE_DATA", () => {
       fc.property(
         fc.integer({ min: 1, max: 1_000_000 }),      // price
         fc.integer({ min: 1, max: 3_600_000 }),       // extra ms beyond threshold
-        (price, extraMs) => {
+        (price: number, extraMs: number) => {
           const reading = makeStaleReading(price, DEFAULT_THRESHOLDS.maxAgeMs + extraMs);
           const r = evaluateOracle(reading, price, DEFAULT_THRESHOLDS, Date.now());
           return r.decision === "BLOCK";
@@ -662,7 +659,7 @@ describe("Fail-closed properties (PBT)", () => {
     fc.assert(
       fc.property(
         fc.option(fc.integer({ min: 1, max: 1_000_000 })),
-        (refPrice) => {
+        (refPrice: number | null) => {
           const r = evaluateOracle(null, refPrice ?? null, DEFAULT_THRESHOLDS, Date.now());
           return r.decision === "BLOCK";
         },
@@ -676,7 +673,7 @@ describe("Fail-closed properties (PBT)", () => {
         fc.integer({ min: 1, max: 1_000_000 }),  // current price
         fc.integer({ min: 1, max: 1_000_000 }),  // reference price
         fc.integer({ min: 1, max: 3_600_000 }),  // extra staleness ms
-        (price, ref, extra) => {
+        (price: number, ref: number, extra: number) => {
           const reading = makeStaleReading(price, DEFAULT_THRESHOLDS.maxAgeMs + extra);
           const r = evaluateOracle(reading, ref, DEFAULT_THRESHOLDS, Date.now());
           return r.decision === "BLOCK";
@@ -690,7 +687,7 @@ describe("Fail-closed properties (PBT)", () => {
       fc.property(
         fc.integer({ min: 1, max: 1_000_000 }),  // reference price
         fc.double({ min: 1.1, max: 5.0 }),        // multiplier > 5%
-        (ref, multiplier) => {
+        (ref: number, multiplier: number) => {
           const price = Math.round(ref * (1 + DEFAULT_THRESHOLDS.maxDeviationPct / 100 * multiplier));
           const reading = makeFreshReading(price);
           const r = evaluateOracle(reading, ref, DEFAULT_THRESHOLDS, Date.now());
@@ -708,7 +705,7 @@ describe("Fail-closed properties (PBT)", () => {
       fc.property(
         fc.integer({ min: 0, max: 10_000 }),  // current fee in stroops
         fc.integer({ min: 0, max: 10_000 }),  // baseline fee
-        (current, baseline) => {
+        (current: number, baseline: number) => {
           const alert = computeFeeDeviationAlert(current, baseline);
           return ["normal", "warning", "critical"].includes(alert.level);
         },
@@ -727,7 +724,13 @@ describe("Fail-closed properties (PBT)", () => {
           }),
           { minLength: 1, maxLength: 5 },
         ),
-        (strategyParams) => {
+        (
+          strategyParams: Array<{
+            weight: number;
+            performanceScore: number;
+            isActive: boolean;
+          }>,
+        ) => {
           const strategies: StrategyModule[] = strategyParams.map((p, i) => ({
             id: `s${i}`,
             name: `Strategy ${i}`,
